@@ -9,13 +9,16 @@ import os
 
 
 class SingleSession():
-    def __init__(self, average_span=5, observation_span=100, period=2,
-                 p_threshold=0.95):
+    def __init__(self, average_span=5, observation_span=10000, period=1,
+                 p_threshold=0.95, max_consecutive_detections=1):
         self.observation_span = observation_span
         self.average_span = average_span
         self.data_store = "data"
         self.period = period
         self.p_threshold = p_threshold
+        self.detections = 0
+        self.consecutive_detections = 0
+        self.max_consecutive_detections = max_consecutive_detections
 
         if os.path.isdir(self.data_store) is False:
             os.mkdir(self.data_store)
@@ -78,26 +81,39 @@ class SingleSession():
         yvals = np.arange(len(sorted))/float(len(sorted))
         xloc = self.background_mean + 10 * self.background_std
         idx = np.argmin(np.abs(sorted - xloc))
-        if yvals[idx] < self.p_threshold:
+        p = yvals[idx]
+        if p < self.p_threshold:
             print("Image classified as interesting with p={}".format(yvals[idx]))
-            return True
+            return True, p
         else:
-            return False
+            return False, p
 
     def observation_mode(self):
         print("Starting observation mode..")
         start_time = time.time()
         while time.time() - start_time < self.observation_span:
             fn, img = self.get_image()
-            if self.classify_interest(img) is False:
+            interest, p = self.classify_interest(img)
+            if interest is False:
+                self.consecutive_detections = 0
                 self.remove_image(fn)
             else:
-                continue
+                self.detections += 1
+                self.consecutive_detections += 1
+                self.rename_image(fn, p)
+
             time.sleep(self.period)
+
+            if self.consecutive_detections >= self.max_consecutive_detections:
+                self.capture_background()
+                self.calculate_background()
 
     def remove_image(self, fn):
         os.remove(fn)
 
+    def rename_image(self, fn, p):
+        new_fn = fn.rstrip(".png") + "_p_{}.png".format(p)
+        os.rename(fn, new_fn)
 
 if __name__ == "__main__":
     SingleSession()
