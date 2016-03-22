@@ -2,30 +2,43 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import scipy.stats
-import itertools
+import logging
 import datetime
 import time
 import os
 
 
 class SingleSession():
-    def __init__(self, average_span=5, observation_span=10000, period=1,
-                 p_threshold=0.95, max_consecutive_detections=1):
+    log_dict = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10,
+                    NOTSET=0)
+
+    def __init__(self, average_span=3, observation_span=10000, period=1,
+                 p_threshold=0.95, max_consecutive_detections=1,
+                 log_level='DEBUG'):
+        self.session_name = self.session_name()
+        self.data_store = self.session_name
+        if os.path.isdir(self.data_store) is False:
+            os.mkdir(self.data_store)
+
+        logging.basicConfig(filename='{}/{}.log'.format(
+            self.data_store, self.session_name),
+            level=self.log_dict[log_level])
+
         self.observation_span = observation_span
         self.average_span = average_span
-        self.data_store = "data"
         self.period = period
         self.p_threshold = p_threshold
         self.detections = 0
         self.consecutive_detections = 0
         self.max_consecutive_detections = max_consecutive_detections
 
-        if os.path.isdir(self.data_store) is False:
-            os.mkdir(self.data_store)
-
         self.capture_background()
         self.calculate_background()
         self.observation_mode()
+
+    def session_name(self):
+        name = datetime.datetime.now().strftime('%Y-%m-%d')
+        return name
 
     def capture_image(self):
         """ Capture an image and save it to disk, return the file name """
@@ -35,9 +48,9 @@ class SingleSession():
         fn = "{}/{}.png".format(
             self.data_store,
             datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
-        os.system('fswebcam -q -r {} --greyscale --png {} {} -S {}'.format(
+        os.system('fswebcam -q -r {} --no-banner --greyscale --png {} {} -S {}'.format(
             resolution, compression, fn, frame_skip))
-        print("Saved image {}".format(fn))
+        logging.debug("Saved image {}".format(fn))
         return fn
 
     def get_image(self):
@@ -46,7 +59,7 @@ class SingleSession():
         return fn, mpimg.imread(fn)
 
     def capture_background(self):
-        print("Capturing average background image")
+        logging.debug("Capturing average background image")
         start_time = time.time()
         images = []
         while time.time() - start_time < self.average_span:
@@ -82,14 +95,15 @@ class SingleSession():
         xloc = self.background_mean + 10 * self.background_std
         idx = np.argmin(np.abs(sorted - xloc))
         p = yvals[idx]
+
         if p < self.p_threshold:
-            print("Image classified as interesting with p={}".format(yvals[idx]))
+            logging.info("Image classified as interesting with p={}".format(p))
             return True, p
         else:
             return False, p
 
     def observation_mode(self):
-        print("Starting observation mode..")
+        logging.debug("Starting observation mode..")
         start_time = time.time()
         while time.time() - start_time < self.observation_span:
             fn, img = self.get_image()
@@ -107,6 +121,7 @@ class SingleSession():
             if self.consecutive_detections >= self.max_consecutive_detections:
                 self.capture_background()
                 self.calculate_background()
+                logging.debug("Starting observation mode..")
 
     def remove_image(self, fn):
         os.remove(fn)
